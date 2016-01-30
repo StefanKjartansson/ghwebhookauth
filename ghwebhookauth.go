@@ -21,6 +21,10 @@ type GitHubWebhookAuth struct {
 	SecretKey []byte
 }
 
+func New(secretKey string) *GitHubWebhookAuth {
+	return &GitHubWebhookAuth{[]byte(secretKey)}
+}
+
 func (g *GitHubWebhookAuth) authenticate(r *http.Request) error {
 
 	h := r.Header.Get(HeaderName)
@@ -28,7 +32,7 @@ func (g *GitHubWebhookAuth) authenticate(r *http.Request) error {
 		return ErrMissingHeader
 	}
 
-	digest := hmac.New(sha1.New, []byte(g.SecretKey))
+	digest := hmac.New(sha1.New, g.SecretKey)
 	_, err := io.Copy(digest, r.Body)
 
 	if err != nil {
@@ -45,8 +49,20 @@ func (g *GitHubWebhookAuth) authenticate(r *http.Request) error {
 }
 
 func (g *GitHubWebhookAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	if r.ContentLength == 0 {
+		http.Error(w, "Empty body", 400)
+		return
+	}
 	err := g.authenticate(r)
-	if err == nil && next != nil {
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if next != nil {
 		next(w, r)
 	}
 }

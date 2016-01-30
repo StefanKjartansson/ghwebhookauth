@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,121 +14,120 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const testSecret = "f00b4r"
+
+type testStruct struct {
+	Method       string
+	HeaderValue  *string
+	ExpectedCode int
+	ExpectedBody *string
+	PostBody     *string
+}
+
 func dummyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
-func TestNew(t *testing.T) {
+func testRequest(t *testing.T, s testStruct) {
 	assert := assert.New(t)
-	g := New("mys3cr3t")
-	assert.NotNil(g)
-}
-
-func TestDisallowedMethods(t *testing.T) {
-	assert := assert.New(t)
-	g := New("mys3cr3t")
+	g := New(testSecret)
 	assert.NotNil(g)
 
-	disallow := []string{"GET", "PUT", "DELETE", "PATCH", "HEAD"}
+	m := make(map[string]http.HandlerFunc)
+	m["HandlerWithNext"] = func(w http.ResponseWriter, r *http.Request) {
+		g.HandlerWithNext(w, r, dummyHandler)
+	}
+	m["Handler"] = func(w http.ResponseWriter, r *http.Request) {
+		g.Handler(http.HandlerFunc(dummyHandler)).ServeHTTP(w, r)
+	}
 
-	for _, m := range disallow {
-		w := httptest.NewRecorder()
-		req, err := http.NewRequest(m, "http://localhost/foobar", nil)
+	for k, v := range m {
+		t.Logf("Testing %s\n", k)
+		var body io.Reader
+		if s.PostBody != nil {
+			body = strings.NewReader(*s.PostBody)
+		}
+		req, err := http.NewRequest(s.Method, "http://localhost/foobar", body)
 		if err != nil {
 			t.Fatal(err)
 		}
-		g.ServeHTTP(w, req, dummyHandler)
-		assert.Equal(w.Code, 405, "Disallowed methods should return 405")
+		if s.HeaderValue != nil {
+			req.Header.Set(HeaderName, *s.HeaderValue)
+		}
+		w := httptest.NewRecorder()
+		v(w, req)
+		assert.Equal(w.Code, s.ExpectedCode)
+		if s.ExpectedBody != nil {
+			assert.Equal(*s.ExpectedBody, string(w.Body.Bytes()))
+		}
 	}
+}
 
+func TestDisallowedMethods(t *testing.T) {
+	disallow := []string{"GET", "PUT", "DELETE", "PATCH", "HEAD"}
+	for _, m := range disallow {
+		testRequest(t, testStruct{Method: m, ExpectedCode: 405})
+	}
 }
 
 func TestEmptyPost(t *testing.T) {
-	assert := assert.New(t)
-	g := New("mys3cr3t")
-	assert.NotNil(g)
-
-	w := httptest.NewRecorder()
-	req, err := http.NewRequest("POST", "http://localhost/foobar", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set(HeaderName, "dummyvalue")
-	g.ServeHTTP(w, req, dummyHandler)
-	assert.Equal(w.Code, 400, "Empty body returns 400")
+	expectedBody := "Missing Body\n"
+	testRequest(t, testStruct{Method: "POST", ExpectedCode: 400, ExpectedBody: &expectedBody})
 }
 
 func TestMissingHeader(t *testing.T) {
-	assert := assert.New(t)
-	g := New("mys3cr3t")
-	assert.NotNil(g)
-
-	w := httptest.NewRecorder()
-	body := strings.NewReader("body")
-	req, err := http.NewRequest("POST", "http://localhost/foobar", body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	g.ServeHTTP(w, req, dummyHandler)
-	assert.Equal(w.Code, 400, "Missing header returns 400")
-	assert.Equal(string(w.Body.Bytes()), ErrMissingHeader.Error()+"\n", "Should equal missing header")
+	expectedBody := "Missing Header\n"
+	postBody := "foobar"
+	testRequest(t, testStruct{Method: "POST", ExpectedCode: 400, ExpectedBody: &expectedBody, PostBody: &postBody})
 }
 
 func TestEmptyHeader(t *testing.T) {
-	assert := assert.New(t)
-	g := New("mys3cr3t")
-	assert.NotNil(g)
-
-	w := httptest.NewRecorder()
-	body := strings.NewReader("body")
-	req, err := http.NewRequest("POST", "http://localhost/foobar", body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set(HeaderName, "")
-	g.ServeHTTP(w, req, dummyHandler)
-	assert.Equal(w.Code, 400, "Missing header returns 400")
-	assert.Equal(string(w.Body.Bytes()), ErrMissingHeader.Error()+"\n", "Should equal missing header")
+	expectedBody := "Missing Header\n"
+	postBody := "foobar"
+	headerValue := ""
+	testRequest(t, testStruct{Method: "POST", ExpectedCode: 400, ExpectedBody: &expectedBody, PostBody: &postBody, HeaderValue: &headerValue})
 }
 
 func TestInvalidSignature(t *testing.T) {
-	assert := assert.New(t)
-	g := New("mys3cr3t")
-	assert.NotNil(g)
-
-	w := httptest.NewRecorder()
-	body := strings.NewReader("body")
-	req, err := http.NewRequest("POST", "http://localhost/foobar", body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set(HeaderName, "dummyvalue")
-	g.ServeHTTP(w, req, dummyHandler)
-	assert.Equal(w.Code, 400, "Empty body returns 400")
-	assert.Equal(string(w.Body.Bytes()), ErrInvalidSignature.Error()+"\n", "Should equal invalid signature")
+	expectedBody := ErrInvalidSignature.Error() + "\n"
+	postBody := "foobar"
+	headerValue := "dummyvalue"
+	testRequest(t, testStruct{Method: "POST", ExpectedCode: 400, ExpectedBody: &expectedBody, PostBody: &postBody, HeaderValue: &headerValue})
 }
 
 func TestValidRequest(t *testing.T) {
-	assert := assert.New(t)
-	g := New("mys3cr3t")
-	assert.NotNil(g)
+	expectedBody := "OK"
+	postBody := "foobar"
 
-	w := httptest.NewRecorder()
-	body := strings.NewReader("body")
-	req, err := http.NewRequest("POST", "http://localhost/foobar", body)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	digest := hmac.New(sha1.New, []byte("mys3cr3t"))
-	digest.Write([]byte("body"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	digest := hmac.New(sha1.New, []byte(testSecret))
+	digest.Write([]byte(postBody))
 	b := bytes.NewBufferString("sha1=" + hex.EncodeToString(digest.Sum(nil)))
 
-	req.Header.Set(HeaderName, string(b.Bytes()))
-	g.ServeHTTP(w, req, dummyHandler)
-	assert.Equal(w.Code, 200, "Empty body returns 200")
-	assert.Equal(string(w.Body.Bytes()), "OK", "Should equal invalid signature")
+	headerValue := string(b.Bytes())
+	testRequest(t, testStruct{Method: "POST", ExpectedCode: 200, ExpectedBody: &expectedBody, PostBody: &postBody, HeaderValue: &headerValue})
+
+	/*
+		assert := assert.New(t)
+		g := New("mys3cr3t")
+		assert.NotNil(g)
+
+		w := httptest.NewRecorder()
+		body := strings.NewReader("body")
+		req, err := http.NewRequest("POST", "http://localhost/foobar", body)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		digest := hmac.New(sha1.New, []byte("testSecret"))
+		digest.Write([]byte("body"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b := bytes.NewBufferString("sha1=" + hex.EncodeToString(digest.Sum(nil)))
+
+		req.Header.Set(HeaderName, string(b.Bytes()))
+		g.HandlerWithNext(w, req, dummyHandler)
+		assert.Equal(w.Code, 200, "Empty body returns 200")
+		assert.Equal(string(w.Body.Bytes()), "OK", "Should equal invalid signature")
+	*/
 }

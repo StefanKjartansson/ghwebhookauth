@@ -15,6 +15,8 @@ const HeaderName = "X-Hub-Signature"
 var (
 	ErrMissingHeader    = errors.New("Missing Header")
 	ErrInvalidSignature = errors.New("Invalid Signature")
+	ErrMissingBody      = errors.New("Missing Body")
+	ErrMethodNotAllowed = errors.New("Method not allowed")
 )
 
 type GitHubWebhookAuth struct {
@@ -25,7 +27,14 @@ func New(secretKey string) *GitHubWebhookAuth {
 	return &GitHubWebhookAuth{[]byte(secretKey)}
 }
 
-func (g *GitHubWebhookAuth) authenticate(r *http.Request) error {
+func (g *GitHubWebhookAuth) check(r *http.Request) error {
+
+	if r.Method != "POST" {
+		return ErrMethodNotAllowed
+	}
+	if r.ContentLength == 0 {
+		return ErrMissingBody
+	}
 
 	h := r.Header.Get(HeaderName)
 	if h == "" {
@@ -48,21 +57,37 @@ func (g *GitHubWebhookAuth) authenticate(r *http.Request) error {
 	return nil
 }
 
-func (g *GitHubWebhookAuth) ServeHTTP(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed", 405)
-		return
-	}
-	if r.ContentLength == 0 {
-		http.Error(w, "Empty body", 400)
-		return
-	}
-	err := g.authenticate(r)
+func (g *GitHubWebhookAuth) HandlerWithNext(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+
+	err := g.check(r)
+
 	if err != nil {
-		http.Error(w, err.Error(), 400)
+		status := 400
+		if err == ErrMethodNotAllowed {
+			status = 405
+		}
+		http.Error(w, err.Error(), status)
 		return
 	}
+
 	if next != nil {
 		next(w, r)
 	}
+}
+
+func (g *GitHubWebhookAuth) Handler(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		err := g.check(r)
+
+		if err != nil {
+			status := 400
+			if err == ErrMethodNotAllowed {
+				status = 405
+			}
+			http.Error(w, err.Error(), status)
+			return
+		}
+
+		h.ServeHTTP(w, r)
+	})
 }

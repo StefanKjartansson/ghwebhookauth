@@ -27,6 +27,7 @@ import (
 )
 
 var webhookHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+  // normal handler code
 })
 
 func main() {
@@ -52,6 +53,7 @@ import (
 )
 
 var webhookHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+  // normal handler code
 })
 
 func main() {

@@ -31,7 +31,7 @@ var webhookHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Reques
 })
 
 func main() {
-  secretKey = os.Getenv("GITHUB_SECRET_KEY")
+  secretKey := os.Getenv("GITHUB_SECRET_KEY")
   gh := ghwebhookauth.New(secretKey)
   app := gh.Handler(http.HandlerFunc(webhookHandler))
   http.ListenAndServe("0.0.0.0:3000", app)
@@ -57,7 +57,7 @@ var webhookHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Reques
 })
 
 func main() {
-  secretKey = os.Getenv("GITHUB_SECRET_KEY")
+  secretKey := os.Getenv("GITHUB_SECRET_KEY")
   gh := ghwebhookauth.New(secretKey)
   r := mux.NewRouter()
   r.Handle("/myhook", negroni.New(

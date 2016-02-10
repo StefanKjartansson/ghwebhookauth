@@ -2,6 +2,7 @@
 
 [![Build Status](https://travis-ci.org/StefanKjartansson/ghwebhookauth.png?branch=master)](https://travis-ci.org/StefanKjartansson/ghwebhookauth)
 [![Report Card](https://goreportcard.com/badge/github.com/StefanKjartansson/ghwebhookauth)](https://goreportcard.com/badge/github.com/StefanKjartansson/ghwebhookauth)
+[![Coverage](http://gocover.io/_badge/github.com/StefanKjartansson/ghwebhookauth)](http://gocover.io/github.com/StefanKjartansson/ghwebhookauth)
 
 A middleware that will check that a valid [X-Hub-Signature](https://developer.github.com/webhooks/securing/) header is sent for POST requests.
 
